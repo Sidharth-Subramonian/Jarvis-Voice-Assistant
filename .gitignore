@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+.env
+
+# Android / Gradle
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+.DS_Store
+
+# Jarvis / OS
+temp_jarvis/
+*.wav
+*.log
+mpvsocket
