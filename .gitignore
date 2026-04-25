@@ -31,3 +31,10 @@ temp_jarvis/
 *.wav
 *.log
 mpvsocket
+
+# Firebase & Secrets
+backend/firebase-adminsdk.json
+app/google-services.json
+
+# Database
+backend/piconsole.db
