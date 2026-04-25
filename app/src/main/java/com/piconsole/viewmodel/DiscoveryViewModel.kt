@@ -1,11 +1,10 @@
 package com.piconsole.viewmodel
 
-import android.app.Application
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.util.Log
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -17,8 +16,8 @@ data class DiscoveredDevice(
     val model: String
 )
 
-class DiscoveryViewModel(application: Application) : AndroidViewModel(application) {
-    private val nsdManager = application.getSystemService(Context.NSD_SERVICE) as NsdManager
+class DiscoveryViewModel : ViewModel() {
+    private var nsdManager: NsdManager? = null
     
     private val _devices = MutableStateFlow<List<DiscoveredDevice>>(emptyList())
     val devices: StateFlow<List<DiscoveredDevice>> = _devices.asStateFlow()
@@ -26,13 +25,19 @@ class DiscoveryViewModel(application: Application) : AndroidViewModel(applicatio
     private val _isScanning = MutableStateFlow(false)
     val isScanning: StateFlow<Boolean> = _isScanning.asStateFlow()
 
+    fun initNsd(context: Context) {
+        if (nsdManager == null) {
+            nsdManager = context.applicationContext.getSystemService(Context.NSD_SERVICE) as? NsdManager
+        }
+    }
+
     private val discoveryListener = object : NsdManager.DiscoveryListener {
         override fun onDiscoveryStarted(regType: String) {
             _isScanning.value = true
         }
         override fun onServiceFound(service: NsdServiceInfo) {
-            if (service.serviceType == "_piconsole._tcp.local.") {
-                nsdManager.resolveService(service, resolveListener)
+            if (service.serviceType.contains("_piconsole._tcp")) {
+                nsdManager?.resolveService(service, resolveListener)
             }
         }
         override fun onServiceLost(service: NsdServiceInfo) { }
@@ -40,22 +45,22 @@ class DiscoveryViewModel(application: Application) : AndroidViewModel(applicatio
             _isScanning.value = false
         }
         override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
-            nsdManager.stopServiceDiscovery(this)
+            try { nsdManager?.stopServiceDiscovery(this) } catch(e: Exception) {}
             _isScanning.value = false
         }
         override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {
-            nsdManager.stopServiceDiscovery(this)
+            try { nsdManager?.stopServiceDiscovery(this) } catch(e: Exception) {}
         }
     }
 
     private val resolveListener = object : NsdManager.ResolveListener {
-        override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) { }
+        override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
+            Log.e("Discovery", "Resolve failed: $errorCode")
+        }
         override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
             val name = serviceInfo.serviceName
             val ip = serviceInfo.host.hostAddress
             
-            // In Android API levels below 21, attributes aren't easily parsed this way.
-            // But targetSdk is 34 so we should be good.
             var model = "Raspberry Pi"
             try {
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
@@ -75,9 +80,13 @@ class DiscoveryViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun startDiscovery() {
+        if (nsdManager == null) {
+            Log.e("Discovery", "NsdManager not initialized. Call initNsd(context) first.")
+            return
+        }
         try {
             _devices.value = emptyList()
-            nsdManager.discoverServices("_piconsole._tcp.local.", NsdManager.PROTOCOL_DNS_SD, discoveryListener)
+            nsdManager?.discoverServices("_piconsole._tcp.", NsdManager.PROTOCOL_DNS_SD, discoveryListener)
         } catch (e: Exception) {
             Log.e("Discovery", "Failed to start discovery", e)
         }
@@ -85,7 +94,12 @@ class DiscoveryViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun stopDiscovery() {
         try {
-            nsdManager.stopServiceDiscovery(discoveryListener)
+            nsdManager?.stopServiceDiscovery(discoveryListener)
         } catch (e: Exception) { }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        stopDiscovery()
     }
 }

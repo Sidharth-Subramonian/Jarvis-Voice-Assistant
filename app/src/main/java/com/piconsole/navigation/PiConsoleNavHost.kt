@@ -38,11 +38,6 @@ import android.util.Log
 fun PiConsoleNavHost() {
     val navController = rememberNavController()
 
-    val discoveryViewModel: DiscoveryViewModel = viewModel()
-    val dashboardViewModel: DashboardViewModel = viewModel()
-    val clockViewModel: ClockViewModel = viewModel()
-    val mediaViewModel: MediaViewModel = viewModel()
-
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
@@ -90,6 +85,7 @@ fun PiConsoleNavHost() {
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(NavRoutes.Discovery.route) { 
+                val discoveryViewModel: DiscoveryViewModel = viewModel()
                 DiscoveryScreen(
                     viewModel = discoveryViewModel,
                     onDeviceSelected = { device ->
@@ -115,9 +111,18 @@ fun PiConsoleNavHost() {
                     }
                 )
             }
-            composable(NavRoutes.Dashboard.route) { DashboardScreen(dashboardViewModel) }
-            composable(NavRoutes.Timers.route) { ClockHubScreen(clockViewModel) }
-            composable(NavRoutes.Media.route) { MediaScreen(mediaViewModel) }
+            composable(NavRoutes.Dashboard.route) { 
+                val dashboardViewModel: DashboardViewModel = viewModel()
+                DashboardScreen(dashboardViewModel) 
+            }
+            composable(NavRoutes.Timers.route) { 
+                val clockViewModel: ClockViewModel = viewModel()
+                ClockHubScreen(clockViewModel) 
+            }
+            composable(NavRoutes.Media.route) { 
+                val mediaViewModel: MediaViewModel = viewModel()
+                MediaScreen(mediaViewModel) 
+            }
             composable(NavRoutes.Memory.route) { MemoryVaultScreen() }
         }
     }

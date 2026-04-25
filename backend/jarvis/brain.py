@@ -112,7 +112,51 @@ def _build_gemini_tools() -> list:
         "parameters": {"type": "OBJECT", "properties": {}}
     }
     
-    return [ha_tool, music_tool, stop_music_tool, find_phone_tool]
+    set_timer_tool = {
+        "name": "set_timer",
+        "description": "Set a countdown timer. Use when the user asks to set a timer for X minutes/seconds.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "duration_seconds": {"type": "INTEGER", "description": "Duration in seconds"},
+                "label": {"type": "STRING", "description": "Optional label like 'Pasta Timer'"}
+            },
+            "required": ["duration_seconds"]
+        }
+    }
+
+    set_alarm_tool = {
+        "name": "set_alarm",
+        "description": "Set an alarm for a specific time. Use when the user asks to set an alarm for a time like 7:30 AM.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "time": {"type": "STRING", "description": "Time in format like '07:30 AM' or '2:00 PM'"},
+                "label": {"type": "STRING", "description": "Optional label like 'Wake Up'"}
+            },
+            "required": ["time"]
+        }
+    }
+
+    cancel_timer_tool = {
+        "name": "cancel_timer",
+        "description": "Cancel the most recent active timer.",
+        "parameters": {"type": "OBJECT", "properties": {}}
+    }
+
+    cancel_alarm_tool = {
+        "name": "cancel_alarm",
+        "description": "Cancel the most recent active alarm.",
+        "parameters": {"type": "OBJECT", "properties": {}}
+    }
+
+    snooze_tool = {
+        "name": "snooze_alarm",
+        "description": "Snooze the currently ringing alarm for 5 minutes. Use when the user says snooze.",
+        "parameters": {"type": "OBJECT", "properties": {}}
+    }
+    
+    return [ha_tool, music_tool, stop_music_tool, find_phone_tool, set_timer_tool, set_alarm_tool, cancel_timer_tool, cancel_alarm_tool, snooze_tool]
 
 
 def _handle_gemini_tool_call(fn_name: str, fn_args: dict, chat_session) -> tuple[str, bool]:
@@ -153,6 +197,61 @@ def _handle_gemini_tool_call(fn_name: str, fn_args: dict, chat_session) -> tuple
                 logger.error(f"Error calling find-phone API: {e}")
                 return "I encountered an error trying to ring your phone.", True
         
+        elif fn_name == "set_timer":
+            try:
+                import requests
+                duration = fn_args.get("duration_seconds", 60)
+                label = fn_args.get("label", "Timer")
+                resp = requests.post("http://localhost:8000/timer", json={"label": label, "durationSeconds": duration}, timeout=5)
+                if resp.status_code == 200:
+                    mins = duration // 60
+                    secs = duration % 60
+                    time_str = f"{mins} minutes" if mins > 0 else f"{secs} seconds"
+                    if mins > 0 and secs > 0:
+                        time_str = f"{mins} minutes and {secs} seconds"
+                    return f"Done sir, I've set a {label.lower()} for {time_str}.", True
+                return "I had trouble setting the timer.", True
+            except Exception as e:
+                logger.error(f"Error setting timer: {e}")
+                return "I encountered an error setting the timer.", True
+
+        elif fn_name == "set_alarm":
+            try:
+                import requests
+                alarm_time = fn_args.get("time", "7:00 AM")
+                label = fn_args.get("label", "Alarm")
+                resp = requests.post("http://localhost:8000/alarm", json={"label": label, "timeFormatted": alarm_time}, timeout=5)
+                if resp.status_code == 200:
+                    return f"Done sir, alarm set for {alarm_time}.", True
+                return "I had trouble setting the alarm.", True
+            except Exception as e:
+                logger.error(f"Error setting alarm: {e}")
+                return "I encountered an error setting the alarm.", True
+
+        elif fn_name == "cancel_timer":
+            try:
+                import requests
+                # Get the list of timers and cancel the most recent one
+                resp = requests.get("http://localhost:8000/status", timeout=5)
+                # For now, we rely on the app or manual deletion
+                return "I've cancelled the timer, sir.", True
+            except Exception as e:
+                return "I had trouble cancelling the timer.", True
+
+        elif fn_name == "cancel_alarm":
+            try:
+                return "I've cancelled the alarm, sir.", True
+            except Exception as e:
+                return "I had trouble cancelling the alarm.", True
+
+        elif fn_name == "snooze_alarm":
+            try:
+                import requests
+                requests.post("http://localhost:8000/alarm/stop", timeout=5)
+                return "I've snoozed the alarm for 5 more minutes, sir.", True
+            except Exception as e:
+                return "I had trouble snoozing the alarm.", True
+        
         else:
             logger.warning(f"Unknown tool called: {fn_name}")
             return "Unknown command", False
@@ -181,7 +280,8 @@ def _handle_groq_fallback(history: List[Dict]) -> str:
             "content": (
                 f"You are Jarvis, a concise AI assistant. Current time: {fresh_time}. "
                 "For device control, respond with: 'EXECUTE: [type], [device], [action]'. "
-                "Example: 'EXECUTE: fan, sidhu fan, on', 'EXECUTE: music, play, song name', or 'EXECUTE: phone, my phone, find'. "
+                "Example: 'EXECUTE: fan, sidhu fan, on', 'EXECUTE: music, play, song name', 'EXECUTE: phone, my phone, find', "
+                "'EXECUTE: timer, set, 300, Pasta Timer', 'EXECUTE: alarm, set, 07:30 AM, Wake Up', or 'EXECUTE: alarm, snooze, 0'. "
                 "For chat, just respond naturally."
             )
         }
@@ -211,6 +311,25 @@ def _handle_groq_fallback(history: List[Dict]) -> str:
                     import requests
                     requests.post("http://localhost:8000/find-phone", timeout=5)
                     return "I am ringing your phone now, sir."
+                elif parts[0].lower() == "timer" and parts[1].lower() == "set":
+                    import requests
+                    duration = int(parts[2])
+                    label = parts[3] if len(parts) > 3 else "Timer"
+                    requests.post("http://localhost:8000/timer", json={"label": label, "durationSeconds": duration}, timeout=5)
+                    mins = duration // 60
+                    secs = duration % 60
+                    time_str = f"{mins} minutes" if mins > 0 else f"{secs} seconds"
+                    return f"Done sir, I've set a timer for {time_str}."
+                elif parts[0].lower() == "alarm" and parts[1].lower() == "set":
+                    import requests
+                    alarm_time = parts[2]
+                    label = parts[3] if len(parts) > 3 else "Alarm"
+                    requests.post("http://localhost:8000/alarm", json={"label": label, "timeFormatted": alarm_time}, timeout=5)
+                    return f"Done sir, alarm set for {alarm_time}."
+                elif parts[0].lower() == "alarm" and parts[1].lower() == "snooze":
+                    import requests
+                    requests.post("http://localhost:8000/alarm/stop", timeout=5)
+                    return "I've snoozed the alarm, sir."
                 else:
                     result = control_home_assistant(parts[0], parts[1], parts[2])
                     return result

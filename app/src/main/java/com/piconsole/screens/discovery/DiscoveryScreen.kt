@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -32,8 +33,10 @@ fun DiscoveryScreen(
 ) {
     val devices by viewModel.devices.collectAsState()
     val isScanning by viewModel.isScanning.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     DisposableEffect(Unit) {
+        viewModel.initNsd(context)
         viewModel.startDiscovery()
         onDispose { viewModel.stopDiscovery() }
     }
@@ -133,11 +136,12 @@ fun RadarAnimation(isScanning: Boolean) {
             )
         }
         
-        // Use the logo we created
-        Image(
-            painter = painterResource(id = R.drawable.logo),
+        // Use a system icon temporarily to test for resource crashes
+        Icon(
+            imageVector = Icons.Default.Home,
             contentDescription = "Pi Logo",
-            modifier = Modifier.size(80.dp)
+            modifier = Modifier.size(80.dp),
+            tint = Color(0xFF3B82F6)
         )
     }
 }
@@ -156,14 +160,15 @@ fun DeviceCard(device: DiscoveredDevice, onClick: () -> Unit) {
             modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Image(
-                painter = painterResource(id = R.drawable.logo),
+            Icon(
+                imageVector = Icons.Default.Home,
                 contentDescription = "Device Image",
                 modifier = Modifier
                     .size(60.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color(0xFF2A2B3C))
-                    .padding(8.dp)
+                    .padding(8.dp),
+                tint = Color(0xFF3B82F6)
             )
             Spacer(modifier = Modifier.width(16.dp))
             Column {

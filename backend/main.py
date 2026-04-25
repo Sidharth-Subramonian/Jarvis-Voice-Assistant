@@ -1,10 +1,15 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List
+import json
+import shutil
+from pathlib import Path
 import uuid
 import psutil
 import socket
 import time
+from datetime import datetime
 import asyncio
 import os
 import socket
@@ -61,28 +66,99 @@ class Timer(SQLModel, table=True):
     durationSeconds: int
     endTime: float
     isActive: bool = True
+    ringtone: str = "default"
 
 class Alarm(SQLModel, table=True):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
     label: str
-    timeFormatted: str # e.g., "07:30"
+    timeFormatted: str # e.g., "07:30 PM"
     isActive: bool = True
+    ringtone: str = "default"
+    repeatDays: Optional[str] = None  # JSON list like '["Mon","Tue"]' or null for one-shot
+
+# Ringtone directory
+RINGTONE_DIR = Path(os.path.dirname(__file__)) / "ringtones"
+RINGTONE_DIR.mkdir(exist_ok=True)
 
 # Audio Engine
 class SoundManager:
     def __init__(self):
         try:
-            pygame.mixer.init()
+            pygame.mixer.init(frequency=22050, size=-16, channels=1)
             self.enabled = True
+            self._generate_default_tones()
         except Exception as e:
             print(f"Audio init failed: {e}")
             self.enabled = False
 
-    def play_alarm(self):
-        if not self.enabled: return
-        # In a real app, you'd have an actual mp3 file.
-        # For now, we'll try to play a system beep or a placeholder
-        print("BEEP BEEP! Timer Finished!")
+    def _generate_default_tones(self):
+        """Generate built-in default ringtone files if they don't exist."""
+        try:
+            import numpy as np
+            sample_rate = 22050
+            defaults = {
+                "classic_beep.wav": [(880, 0.3)] * 6,
+                "gentle_chime.wav": [(523, 0.4), (659, 0.4), (784, 0.5)],
+                "urgent_alarm.wav": [(1000, 0.15), (800, 0.15)] * 8,
+            }
+            for fname, pattern in defaults.items():
+                fpath = RINGTONE_DIR / fname
+                if not fpath.exists():
+                    chunks = []
+                    for freq, dur in pattern:
+                        t = np.linspace(0, dur, int(sample_rate * dur), False)
+                        wave = (np.sin(2 * np.pi * freq * t) * 32767 * 0.7).astype(np.int16)
+                        silence = np.zeros(int(sample_rate * 0.2), dtype=np.int16)
+                        chunks.extend([wave, silence])
+                    full = np.concatenate(chunks)
+                    snd = pygame.sndarray.make_sound(full)
+                    import wave as wavmod
+                    with wavmod.open(str(fpath), 'w') as wf:
+                        wf.setnchannels(1)
+                        wf.setsampwidth(2)
+                        wf.setframerate(sample_rate)
+                        wf.writeframes(full.tobytes())
+                    print(f"Generated default ringtone: {fname}")
+        except Exception as e:
+            print(f"Failed to generate default tones: {e}")
+
+    def play_ringtone(self, ringtone: str = "default"):
+        if not self.enabled:
+            print("🔔 Alarm fired! (audio disabled)")
+            return
+        
+        try:
+            if ringtone == "default":
+                ringtone = "classic_beep.wav"
+            
+            fpath = RINGTONE_DIR / ringtone
+            if fpath.exists():
+                print(f"🔔 Playing ringtone: {ringtone}")
+                pygame.mixer.music.load(str(fpath))
+                pygame.mixer.music.play()
+                # Wait for it to finish (max 30s)
+                clock = pygame.time.Clock()
+                while pygame.mixer.music.get_busy():
+                    clock.tick(10)
+            else:
+                print(f"🔔 Ringtone '{ringtone}' not found, playing fallback beep")
+                # Fallback: generate quick beep
+                import numpy as np
+                t = np.linspace(0, 0.3, int(22050 * 0.3), False)
+                wave = (np.sin(2 * np.pi * 880 * t) * 32767 * 0.8).astype(np.int16)
+                snd = pygame.sndarray.make_sound(wave)
+                for _ in range(6):
+                    snd.play()
+                    pygame.time.wait(500)
+        except Exception as e:
+            print(f"Error playing ringtone: {e}")
+
+    def stop(self):
+        """Stop any currently playing alarm."""
+        try:
+            pygame.mixer.music.stop()
+        except Exception:
+            pass
 
 sound_manager = SoundManager()
 scheduler = AsyncIOScheduler()
@@ -142,21 +218,27 @@ class JarvisCommand(BaseModel):
 class TimerRequest(BaseModel):
     label: str
     durationSeconds: int
+    ringtone: str = "default"
 
 class TimerResponse(BaseModel):
     id: str
     label: str
     remainingSeconds: int
+    ringtone: str = "default"
 
 class AlarmRequest(BaseModel):
     label: str
     timeFormatted: str
+    ringtone: str = "default"
+    repeatDays: Optional[List[str]] = None  # e.g. ["Mon", "Wed", "Fri"]
 
 class AlarmResponse(BaseModel):
     id: str
     label: str
     timeFormatted: str
     isActive: bool
+    ringtone: str = "default"
+    repeatDays: Optional[List[str]] = None
 
 class StopwatchAction(BaseModel):
     action: str
@@ -274,22 +356,39 @@ async def get_status():
 @app.post("/timer", response_model=TimerResponse)
 async def create_timer(request: TimerRequest):
     end_time = time.time() + request.durationSeconds
-    timer = Timer(label=request.label, durationSeconds=request.durationSeconds, endTime=end_time)
+    timer = Timer(label=request.label, durationSeconds=request.durationSeconds, endTime=end_time, ringtone=request.ringtone)
     
     with Session(engine) as session:
         session.add(timer)
         session.commit()
         session.refresh(timer)
     
-    # Schedule the alarm
+    # Schedule the alarm with ringtone
+    def on_timer_fire(timer_id, label, ringtone):
+        sound_manager.play_ringtone(ringtone)
+        # Broadcast timer fired event
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            loop.create_task(manager.broadcast({"type": "timer_fired", "data": {"id": timer_id, "label": label}}))
+        except Exception:
+            pass
+
     scheduler.add_job(
-        sound_manager.play_alarm, 
+        on_timer_fire,
         'date', 
-        run_date=time.fromtimestamp(end_time),
+        run_date=datetime.fromtimestamp(end_time),
+        args=[timer.id, timer.label, request.ringtone],
         id=timer.id
     )
     
-    return TimerResponse(id=timer.id, label=timer.label, remainingSeconds=request.durationSeconds)
+    # Broadcast timer created event for live sync
+    await manager.broadcast({
+        "type": "timer_created",
+        "data": {"id": timer.id, "label": timer.label, "remainingSeconds": request.durationSeconds, "ringtone": request.ringtone}
+    })
+    
+    return TimerResponse(id=timer.id, label=timer.label, remainingSeconds=request.durationSeconds, ringtone=request.ringtone)
 
 @app.delete("/timer/{id}")
 async def delete_timer(id: str):
@@ -300,20 +399,31 @@ async def delete_timer(id: str):
             session.commit()
             if scheduler.get_job(id):
                 scheduler.remove_job(id)
+    await manager.broadcast({"type": "timer_deleted", "data": {"id": id}})
     return {"message": "Timer deleted"}
 
 @app.post("/alarm", response_model=AlarmResponse)
 async def create_alarm(request: AlarmRequest):
-    alarm = Alarm(label=request.label, timeFormatted=request.timeFormatted)
+    repeat_json = json.dumps(request.repeatDays) if request.repeatDays else None
+    alarm = Alarm(label=request.label, timeFormatted=request.timeFormatted, ringtone=request.ringtone, repeatDays=repeat_json)
     
     with Session(engine) as session:
         session.add(alarm)
         session.commit()
         session.refresh(alarm)
     
-    # Simple alarm scheduling (logic for daily repeat would go here)
-    # For now, just store it
-    return AlarmResponse(id=alarm.id, label=alarm.label, timeFormatted=alarm.timeFormatted, isActive=alarm.isActive)
+    # Schedule the alarm
+    _schedule_alarm(alarm.id, request.timeFormatted, request.ringtone, request.repeatDays, alarm.label)
+    
+    # Broadcast alarm created event
+    await manager.broadcast({
+        "type": "alarm_created",
+        "data": {"id": alarm.id, "label": alarm.label, "timeFormatted": alarm.timeFormatted, 
+                 "isActive": True, "ringtone": request.ringtone, "repeatDays": request.repeatDays}
+    })
+    
+    return AlarmResponse(id=alarm.id, label=alarm.label, timeFormatted=alarm.timeFormatted, 
+                         isActive=alarm.isActive, ringtone=request.ringtone, repeatDays=request.repeatDays)
 
 @app.delete("/alarm/{id}")
 async def delete_alarm(id: str):
@@ -322,7 +432,132 @@ async def delete_alarm(id: str):
         if alarm:
             session.delete(alarm)
             session.commit()
+    try:
+        scheduler.remove_job(f"alarm_{id}")
+    except Exception:
+        pass
+    await manager.broadcast({"type": "alarm_deleted", "data": {"id": id}})
     return {"message": "Alarm deleted"}
+
+def _schedule_alarm(alarm_id, time_formatted, ringtone, repeat_days, label):
+    """Schedule an alarm job. Supports one-shot and recurring."""
+    try:
+        from datetime import datetime as dt, timedelta
+        import pytz
+        tz = pytz.timezone("Asia/Kolkata")
+        now = dt.now(tz)
+        
+        alarm_time = dt.strptime(time_formatted, "%I:%M %p")
+        alarm_dt = now.replace(hour=alarm_time.hour, minute=alarm_time.minute, second=0, microsecond=0)
+        
+        if alarm_dt <= now:
+            alarm_dt += timedelta(days=1)
+
+        def on_alarm_fire(a_id, a_label, a_ringtone, a_repeat_days):
+            sound_manager.play_ringtone(a_ringtone)
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                loop.create_task(manager.broadcast({"type": "alarm_fired", "data": {"id": a_id, "label": a_label}}))
+            except Exception:
+                pass
+            # Re-schedule if recurring
+            if a_repeat_days:
+                _schedule_alarm(a_id, time_formatted, a_ringtone, a_repeat_days, a_label)
+
+        if repeat_days:
+            # For recurring, check if tomorrow's day is in the repeat list
+            day_map = {"Mon": 0, "Tue": 1, "Wed": 2, "Thu": 3, "Fri": 4, "Sat": 5, "Sun": 6}
+            target_days = [day_map[d] for d in repeat_days if d in day_map]
+            # Find next matching day
+            for offset in range(1, 8):
+                candidate = now + timedelta(days=offset)
+                if candidate.weekday() in target_days:
+                    alarm_dt = candidate.replace(hour=alarm_time.hour, minute=alarm_time.minute, second=0, microsecond=0)
+                    break
+            # Also check today
+            today_alarm = now.replace(hour=alarm_time.hour, minute=alarm_time.minute, second=0, microsecond=0)
+            if today_alarm > now and now.weekday() in target_days:
+                alarm_dt = today_alarm
+
+        # Remove old job if exists
+        try:
+            scheduler.remove_job(f"alarm_{alarm_id}")
+        except Exception:
+            pass
+
+        scheduler.add_job(
+            on_alarm_fire,
+            'date',
+            run_date=alarm_dt,
+            args=[alarm_id, label, ringtone, repeat_days],
+            id=f"alarm_{alarm_id}"
+        )
+        print(f"🔔 Alarm '{label}' scheduled for {alarm_dt.strftime('%I:%M %p on %A')}")
+    except Exception as e:
+        print(f"Failed to schedule alarm: {e}")
+
+# Snooze endpoint
+@app.post("/snooze/{alarm_id}")
+async def snooze_alarm(alarm_id: str, minutes: int = 5):
+    """Snooze an alarm by rescheduling it N minutes from now."""
+    sound_manager.stop()
+    snooze_time = datetime.now() + __import__('datetime').timedelta(minutes=minutes)
+    
+    # Find the alarm's ringtone
+    ringtone = "default"
+    with Session(engine) as session:
+        alarm = session.get(Alarm, alarm_id)
+        if alarm:
+            ringtone = alarm.ringtone
+    
+    def on_snooze_fire():
+        sound_manager.play_ringtone(ringtone)
+    
+    scheduler.add_job(on_snooze_fire, 'date', run_date=snooze_time, id=f"snooze_{alarm_id}")
+    print(f"😴 Alarm snoozed for {minutes} minutes")
+    return {"message": f"Snoozed for {minutes} minutes"}
+
+# Ringtone management endpoints
+@app.get("/ringtones")
+async def list_ringtones():
+    """List all available ringtone files."""
+    ringtones = []
+    for f in RINGTONE_DIR.iterdir():
+        if f.suffix.lower() in [".wav", ".mp3", ".ogg"]:
+            ringtones.append({"name": f.name, "size": f.stat().st_size})
+    return {"ringtones": ringtones}
+
+@app.post("/ringtones/upload")
+async def upload_ringtone(file: UploadFile = File(...)):
+    """Upload a custom ringtone file."""
+    allowed = [".wav", ".mp3", ".ogg"]
+    ext = Path(file.filename).suffix.lower()
+    if ext not in allowed:
+        raise HTTPException(status_code=400, detail=f"File type {ext} not supported. Use: {allowed}")
+    
+    dest = RINGTONE_DIR / file.filename
+    with open(dest, "wb") as buf:
+        shutil.copyfileobj(file.file, buf)
+    
+    print(f"📁 Ringtone uploaded: {file.filename}")
+    return {"message": "Ringtone uploaded", "name": file.filename}
+
+@app.delete("/ringtones/{filename}")
+async def delete_ringtone(filename: str):
+    """Delete a custom ringtone."""
+    fpath = RINGTONE_DIR / filename
+    if fpath.exists():
+        fpath.unlink()
+        return {"message": f"Ringtone '{filename}' deleted"}
+    raise HTTPException(status_code=404, detail="Ringtone not found")
+
+# Stop alarm endpoint
+@app.post("/alarm/stop")
+async def stop_alarm():
+    """Stop any currently playing alarm sound."""
+    sound_manager.stop()
+    return {"message": "Alarm stopped"}
 
 def calculate_elapsed():
     global stopwatch_state

@@ -1,6 +1,7 @@
 package com.piconsole.network
 
 import com.piconsole.network.models.*
+import okhttp3.MultipartBody
 import retrofit2.http.*
 
 data class DeviceRegistrationRequest(
@@ -24,11 +25,21 @@ interface ApiService {
     @DELETE("alarm/{id}")
     suspend fun deleteAlarm(@Path("id") id: String)
 
-    @GET("stopwatch")
-    suspend fun getStopwatchState(): StopwatchState
+    @POST("alarm/stop")
+    suspend fun stopAlarm()
 
-    @POST("stopwatch")
-    suspend fun controlStopwatch(@Body request: StopwatchAction): StopwatchState
+    @POST("snooze/{alarmId}")
+    suspend fun snoozeAlarm(@Path("alarmId") alarmId: String, @Query("minutes") minutes: Int = 5)
+
+    @GET("ringtones")
+    suspend fun getRingtones(): RingtoneListResponse
+
+    @Multipart
+    @POST("ringtones/upload")
+    suspend fun uploadRingtone(@Part file: MultipartBody.Part)
+
+    @DELETE("ringtones/{filename}")
+    suspend fun deleteRingtone(@Path("filename") filename: String)
 
     @POST("media")
     suspend fun controlMedia(@Body request: MediaRequest): MediaResponse

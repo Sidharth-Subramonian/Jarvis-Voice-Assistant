@@ -12,35 +12,43 @@ data class StatusResponse(
 
 data class TimerRequest(
     val label: String,
-    val durationSeconds: Int
+    val durationSeconds: Int,
+    val ringtone: String = "default"
 )
 
 data class TimerResponse(
     val id: String,
     val label: String,
-    val remainingSeconds: Int
+    val remainingSeconds: Int,
+    val ringtone: String = "default"
 )
 
 data class AlarmRequest(
     val label: String,
-    val timeFormatted: String
+    val timeFormatted: String,
+    val ringtone: String = "default",
+    val repeatDays: List<String>? = null
 )
 
 data class AlarmResponse(
     val id: String,
     val label: String,
     val timeFormatted: String,
-    val isActive: Boolean
+    val isActive: Boolean,
+    val ringtone: String = "default",
+    val repeatDays: List<String>? = null
 )
 
-data class StopwatchAction(
-    val action: String
+data class RingtoneInfo(
+    val name: String,
+    val size: Long
 )
 
-data class StopwatchState(
-    val isRunning: Boolean,
-    val elapsedMilliseconds: Long
+data class RingtoneListResponse(
+    val ringtones: List<RingtoneInfo>
 )
+
+
 
 data class MediaRequest(
     val action: String, // "play", "pause", "next", "prev", "volume"

@@ -1,21 +1,29 @@
 package com.piconsole.screens.timers
 
+import android.app.Activity
+import android.content.Intent
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -24,19 +32,20 @@ import com.piconsole.components.WheelTimePicker
 import com.piconsole.components.ErrorBanner
 import com.piconsole.viewmodel.ClockViewModel
 import kotlinx.coroutines.delay
+import java.io.File
 
 @Composable
 fun ClockHubScreen(viewModel: ClockViewModel) {
     var selectedTabIndex by remember { mutableIntStateOf(1) } // Default to Timers
     val error by viewModel.error.collectAsState()
-    val tabs = listOf("Alarms", "Timers", "Stopwatch")
+    val tabs = listOf("Alarms", "Timers")
 
     Column(modifier = Modifier.fillMaxSize()) {
         error?.let {
             ErrorBanner(
                 message = it,
                 onDismiss = { viewModel.clearError() },
-                onRetry = { viewModel.fetchStopwatchState() } // Or some generic refresh
+                onRetry = { viewModel.clearError() }
             )
         }
         TabRow(
@@ -62,7 +71,6 @@ fun ClockHubScreen(viewModel: ClockViewModel) {
             when (selectedTabIndex) {
                 0 -> AlarmsContent(viewModel)
                 1 -> TimersContent(viewModel)
-                2 -> StopwatchContent(viewModel)
             }
         }
     }
@@ -94,6 +102,8 @@ fun AlarmsContent(viewModel: ClockViewModel) {
                         label = alarm.label,
                         time = alarm.timeFormatted,
                         isActive = alarm.isActive,
+                        ringtone = alarm.ringtone,
+                        repeatDays = alarm.repeatDays,
                         onDelete = { viewModel.deleteAlarm(alarm.id) }
                     )
                 }
@@ -102,9 +112,10 @@ fun AlarmsContent(viewModel: ClockViewModel) {
 
         if (showAddDialog) {
             AddAlarmDialog(
+                viewModel = viewModel,
                 onDismiss = { showAddDialog = false },
-                onAdd = { label, hrs, mins, amPm ->
-                    viewModel.createAlarm(label, hrs, mins, amPm)
+                onAdd = { label, hrs, mins, amPm, ringtone, repeatDays ->
+                    viewModel.createAlarm(label, hrs, mins, amPm, ringtone, repeatDays)
                     showAddDialog = false
                 }
             )
@@ -113,7 +124,7 @@ fun AlarmsContent(viewModel: ClockViewModel) {
 }
 
 @Composable
-fun AlarmCard(label: String, time: String, isActive: Boolean, onDelete: () -> Unit) {
+fun AlarmCard(label: String, time: String, isActive: Boolean, ringtone: String, repeatDays: List<String>?, onDelete: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -124,9 +135,23 @@ fun AlarmCard(label: String, time: String, isActive: Boolean, onDelete: () -> Un
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(text = label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(text = time, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.SemiBold)
+                if (ringtone != "default") {
+                    Text(
+                        text = "🔔 $ringtone",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                if (!repeatDays.isNullOrEmpty()) {
+                    Text(
+                        text = repeatDays.joinToString(", "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                }
             }
             IconButton(onClick = onDelete) {
                 Icon(Icons.Default.Delete, contentDescription = "Delete Alarm", tint = MaterialTheme.colorScheme.error)
@@ -159,7 +184,7 @@ fun TimersContent(viewModel: ClockViewModel) {
                 items(timers) { timer ->
                     TimerCard(
                         label = timer.label,
-                        remainingSeconds = timer.remainingSeconds, // Ideally this ticks down locally, but keeping static for UI preview
+                        remainingSeconds = timer.remainingSeconds,
                         onCancel = { viewModel.deleteTimer(timer.id) }
                     )
                 }
@@ -168,9 +193,10 @@ fun TimersContent(viewModel: ClockViewModel) {
 
         if (showAddDialog) {
             AddTimerWheelDialog(
+                viewModel = viewModel,
                 onDismiss = { showAddDialog = false },
-                onAdd = { durationSecs ->
-                    viewModel.createTimer("Timer", durationSecs)
+                onAdd = { durationSecs, ringtone ->
+                    viewModel.createTimer("Timer", durationSecs, ringtone)
                     showAddDialog = false
                 }
             )
@@ -179,82 +205,107 @@ fun TimersContent(viewModel: ClockViewModel) {
 }
 
 @Composable
-fun StopwatchContent(viewModel: ClockViewModel) {
-    val state by viewModel.stopwatchState.collectAsState()
-    var displayMillis by remember { mutableLongStateOf(0L) }
+fun RingtoneSelector(viewModel: ClockViewModel, selectedRingtone: String, onSelect: (String) -> Unit) {
+    val ringtones by viewModel.ringtones.collectAsState()
+    val context = LocalContext.current
 
-    // High performance UI tick sync with Pi backend state
-    LaunchedEffect(state) {
-        var localTickStart = System.currentTimeMillis()
-        var baseMillis = state.elapsedMilliseconds
-        displayMillis = baseMillis
-
-        if (state.isRunning) {
-            while (true) {
-                val now = System.currentTimeMillis()
-                displayMillis = baseMillis + (now - localTickStart)
-                delay(30) // smooth 30FPS UI refresh
+    val filePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let {
+            try {
+                val inputStream = context.contentResolver.openInputStream(it)
+                val cursor = context.contentResolver.query(it, null, null, null, null)
+                var fileName = "ringtone.mp3"
+                cursor?.use { c ->
+                    if (c.moveToFirst()) {
+                        val nameIndex = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (nameIndex >= 0) fileName = c.getString(nameIndex)
+                    }
+                }
+                val tempFile = File(context.cacheDir, fileName)
+                inputStream?.use { input ->
+                    tempFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                viewModel.uploadRingtone(tempFile)
+            } catch (e: Exception) {
+                // Handle error
             }
         }
     }
 
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        val totalSecs = displayMillis / 1000
-        val millis = (displayMillis % 1000) / 10
-        val seconds = totalSecs % 60
-        val minutes = (totalSecs / 60) % 60
-        val hours = totalSecs / 3600
+    Column {
+        Text("Ringtone", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(bottom = 8.dp))
 
-        val timeString = if (hours > 0) {
-            String.format("%02d:%02d:%02d.%02d", hours, minutes, seconds, millis)
-        } else {
-            String.format("%02d:%02d.%02d", minutes, seconds, millis)
-        }
+        val allOptions = listOf("default") + ringtones.map { it.name }
 
-        Text(
-            text = timeString,
-            fontSize = 64.sp,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Light,
-            modifier = Modifier.padding(bottom = 64.dp)
-        )
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            FilledTonalButton(
-                onClick = { viewModel.sendStopwatchAction("reset") },
-                modifier = Modifier.size(80.dp),
-                shape = CircleShape
-            ) {
-                Text("Reset")
-            }
-
-            Button(
-                onClick = { 
-                    if (state.isRunning) viewModel.sendStopwatchAction("stop")
-                    else viewModel.sendStopwatchAction("start")
-                },
-                modifier = Modifier.size(100.dp),
-                shape = CircleShape,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (state.isRunning) MaterialTheme.colorScheme.error else Color(0xFF00C853)
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(allOptions) { name ->
+                val isSelected = name == selectedRingtone
+                FilterChip(
+                    selected = isSelected,
+                    onClick = { onSelect(name) },
+                    label = {
+                        Text(
+                            text = if (name == "default") "🔔 Default" else "🎵 ${name.substringBeforeLast(".")}",
+                            fontSize = 12.sp
+                        )
+                    }
                 )
-            ) {
-                Text(if (state.isRunning) "Stop" else "Start", fontSize = 18.sp)
+            }
+            item {
+                AssistChip(
+                    onClick = { filePicker.launch("audio/*") },
+                    label = { Text("+ Upload", fontSize = 12.sp) },
+                    leadingIcon = { Icon(Icons.Default.Notifications, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                )
             }
         }
     }
 }
 
 @Composable
-fun AddAlarmDialog(onDismiss: () -> Unit, onAdd: (String, Int, Int, String) -> Unit) {
+fun DaySelector(selectedDays: List<String>, onToggle: (List<String>) -> Unit) {
+    val days = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+    Column {
+        Text("Repeat", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(bottom = 8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            days.forEach { day ->
+                val isSelected = day in selectedDays
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (isSelected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.surfaceVariant
+                        )
+                        .clickable {
+                            onToggle(
+                                if (isSelected) selectedDays - day
+                                else selectedDays + day
+                            )
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = day.take(1),
+                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                               else MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AddAlarmDialog(viewModel: ClockViewModel, onDismiss: () -> Unit, onAdd: (String, Int, Int, String, String, List<String>?) -> Unit) {
     val hrsList = (1..12).map { it.toString() }
     val minsList = (0..59).map { String.format("%02d", it) }
     val apmList = listOf("AM", "PM")
@@ -262,22 +313,37 @@ fun AddAlarmDialog(onDismiss: () -> Unit, onAdd: (String, Int, Int, String) -> U
     var selectedHr by remember { mutableIntStateOf(0) }
     var selectedMin by remember { mutableIntStateOf(0) }
     var selectedApm by remember { mutableIntStateOf(0) }
+    var selectedRingtone by remember { mutableStateOf("default") }
+    var selectedDays by remember { mutableStateOf<List<String>>(emptyList()) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Set Alarm") },
         text = {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                WheelTimePicker(items = hrsList, onItemSelected = { selectedHr = it })
-                Text(":", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(horizontal = 8.dp))
-                WheelTimePicker(items = minsList, onItemSelected = { selectedMin = it })
-                WheelTimePicker(items = apmList, onItemSelected = { selectedApm = it })
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                    WheelTimePicker(items = hrsList, onItemSelected = { selectedHr = it })
+                    Text(":", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(horizontal = 8.dp))
+                    WheelTimePicker(items = minsList, onItemSelected = { selectedMin = it })
+                    WheelTimePicker(items = apmList, onItemSelected = { selectedApm = it })
+                }
+
+                RingtoneSelector(
+                    viewModel = viewModel,
+                    selectedRingtone = selectedRingtone,
+                    onSelect = { selectedRingtone = it }
+                )
+
+                DaySelector(
+                    selectedDays = selectedDays,
+                    onToggle = { selectedDays = it }
+                )
             }
         },
         confirmButton = {
             TextButton(
                 onClick = {
-                    onAdd("Alarm", hrsList[selectedHr].toInt(), selectedMin, apmList[selectedApm])
+                    onAdd("Alarm", hrsList[selectedHr].toInt(), selectedMin, apmList[selectedApm], selectedRingtone, selectedDays.ifEmpty { null })
                 }
             ) { Text("Set") }
         },
@@ -288,7 +354,7 @@ fun AddAlarmDialog(onDismiss: () -> Unit, onAdd: (String, Int, Int, String) -> U
 }
 
 @Composable
-fun AddTimerWheelDialog(onDismiss: () -> Unit, onAdd: (Int) -> Unit) {
+fun AddTimerWheelDialog(viewModel: ClockViewModel, onDismiss: () -> Unit, onAdd: (Int, String) -> Unit) {
     val hrsList = (0..23).map { String.format("%02d", it) }
     val minsList = (0..59).map { String.format("%02d", it) }
     val secsList = (0..59).map { String.format("%02d", it) }
@@ -296,12 +362,13 @@ fun AddTimerWheelDialog(onDismiss: () -> Unit, onAdd: (Int) -> Unit) {
     var selectedHr by remember { mutableIntStateOf(0) }
     var selectedMin by remember { mutableIntStateOf(0) }
     var selectedSec by remember { mutableIntStateOf(0) }
+    var selectedRingtone by remember { mutableStateOf("default") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Set Timer") },
         text = {
-            Column {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text("Hours", modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                     Text("Mins", modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
@@ -316,13 +383,19 @@ fun AddTimerWheelDialog(onDismiss: () -> Unit, onAdd: (Int) -> Unit) {
                     WheelTimePicker(items = minsList, onItemSelected = { selectedMin = it })
                     WheelTimePicker(items = secsList, onItemSelected = { selectedSec = it })
                 }
+
+                RingtoneSelector(
+                    viewModel = viewModel,
+                    selectedRingtone = selectedRingtone,
+                    onSelect = { selectedRingtone = it }
+                )
             }
         },
         confirmButton = {
             TextButton(
                 onClick = {
                     val duration = (selectedHr * 3600) + (selectedMin * 60) + selectedSec
-                    onAdd(duration)
+                    onAdd(duration, selectedRingtone)
                 }
             ) { Text("Start") }
         },
