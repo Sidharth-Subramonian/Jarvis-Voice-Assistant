@@ -87,6 +87,15 @@ class Alarm(SQLModel, table=True):
 RINGTONE_DIR = Path(os.path.dirname(__file__)) / "ringtones"
 RINGTONE_DIR.mkdir(exist_ok=True)
 
+def get_cpu_temperature():
+    """Get CPU temperature. Returns a default value if unavailable."""
+    try:
+        with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
+            temp = int(f.read().strip()) / 1000
+            return round(temp, 1)
+    except Exception:
+        return 42.0  # Default mock value
+
 # Audio Engine
 class SoundManager:
     def __init__(self):
@@ -357,9 +366,6 @@ async def get_status():
     ram = psutil.virtual_memory()
 
     # Temperature (Mocked for cross-platform compatibility, real would use vcgencmd or similar)
-    try:
-        temp = psutil.sensors_temperatures()
-        temperature = 42.0 # default mock
     return StatusResponse(
         deviceName=socket.gethostname(),
         ipAddress=socket.gethostbyname(socket.gethostname()),
