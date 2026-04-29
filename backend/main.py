@@ -28,7 +28,7 @@ if sys.platform != "win32":
     import pty
     import termios
     import fcntl
-    import select
+    import select as py_select
     import struct
 
 # Initialize Firebase Admin
@@ -841,7 +841,7 @@ async def websocket_terminal(websocket: WebSocket):
             try:
                 while True:
                     await asyncio.sleep(0.01)
-                    r, _, _ = select.select([fd], [], [], 0.0)
+                    r, _, _ = py_select.select([fd], [], [], 0.0)
                     if fd in r:
                         data = os.read(fd, 4096)
                         if not data:
