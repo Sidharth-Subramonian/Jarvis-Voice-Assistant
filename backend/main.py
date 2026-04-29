@@ -203,8 +203,12 @@ def register_zeroconf():
         properties=desc,
         server=f"{socket.gethostname()}.local."
     )
-    zeroconf.register_service(service_info)
-    print(f"Zeroconf service registered at {ip}:8000")
+    try:
+        zeroconf.register_service(service_info)
+        print(f"Zeroconf service registered at {ip}:8000")
+    except Exception as e:
+        print(f"Warning: Could not register Zeroconf service (may already be registered): {e}")
+        print(f"Backend is still available at {ip}:8000")
 
 def unregister_zeroconf():
     global service_info
