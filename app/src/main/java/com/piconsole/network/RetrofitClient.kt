@@ -4,7 +4,8 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
 object RetrofitClient {
-    private var baseUrl: String? = null
+    var baseUrl: String? = null
+        private set
     private var _apiService: ApiService? = null
     private var _webSocketManager: WebSocketManager? = null
 

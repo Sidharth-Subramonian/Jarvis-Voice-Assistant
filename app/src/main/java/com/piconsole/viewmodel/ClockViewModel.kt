@@ -31,8 +31,20 @@ class ClockViewModel : ViewModel() {
     }
 
     init {
+        fetchInitialData()
         fetchRingtones()
         listenForClockEvents()
+    }
+
+    private fun fetchInitialData() {
+        viewModelScope.launch {
+            try {
+                _alarms.value = RetrofitClient.apiService.getAlarms()
+                _timers.value = RetrofitClient.apiService.getTimers()
+            } catch (e: Exception) {
+                _error.value = "Failed to load alarms/timers: ${e.localizedMessage}"
+            }
+        }
     }
 
     private fun listenForClockEvents() {
@@ -73,6 +85,14 @@ class ClockViewModel : ViewModel() {
                         "alarm_deleted" -> {
                             val id = event.data["id"] as? String ?: return@collect
                             _alarms.value = _alarms.value.filter { it.id != id }
+                        }
+                        "alarm_fired" -> {
+                            val id = event.data["id"] as? String ?: return@collect
+                            // Check if it's a one-shot alarm. If so, remove it.
+                            val alarm = _alarms.value.find { it.id == id }
+                            if (alarm != null && alarm.repeatDays.isNullOrEmpty()) {
+                                _alarms.value = _alarms.value.filter { it.id != id }
+                            }
                         }
                     }
                 }

@@ -3,6 +3,7 @@ package com.piconsole.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.piconsole.network.RetrofitClient
+import com.piconsole.network.models.ProcessInfo
 import com.piconsole.network.models.StatusResponse
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -12,6 +13,9 @@ import kotlinx.coroutines.launch
 class DashboardViewModel : ViewModel() {
     private val _status = MutableStateFlow<StatusResponse?>(null)
     val status: StateFlow<StatusResponse?> = _status.asStateFlow()
+
+    private val _processes = MutableStateFlow<List<ProcessInfo>>(emptyList())
+    val processes: StateFlow<List<ProcessInfo>> = _processes.asStateFlow()
 
     init {
         RetrofitClient.webSocketManager.connect()
@@ -50,12 +54,13 @@ class DashboardViewModel : ViewModel() {
         }
     }
 
-    fun findPhone() {
+    fun fetchProcesses() {
         viewModelScope.launch {
             try {
-                RetrofitClient.apiService.findPhone()
+                val response = RetrofitClient.apiService.getProcesses()
+                _processes.value = response
             } catch (e: Exception) {
-                _error.value = "Failed to ring phone: ${e.message}"
+                _error.value = "Failed to fetch processes: ${e.message}"
             }
         }
     }
@@ -76,16 +81,6 @@ class DashboardViewModel : ViewModel() {
                 RetrofitClient.apiService.shutdown()
             } catch (e: Exception) {
                 _error.value = "Failed to shutdown: ${e.message}"
-            }
-        }
-    }
-
-    fun mute() {
-        viewModelScope.launch {
-            try {
-                RetrofitClient.apiService.mute()
-            } catch (e: Exception) {
-                _error.value = "Failed to toggle mute: ${e.message}"
             }
         }
     }

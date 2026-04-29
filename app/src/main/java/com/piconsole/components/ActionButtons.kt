@@ -7,9 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -24,27 +22,11 @@ import com.piconsole.ui.theme.PiConsoleTheme
 
 @Composable
 fun ActionButtons(
-    onFindPhoneClick: () -> Unit,
-    onMuteClick: () -> Unit,
     onRebootClick: () -> Unit,
     onShutdownClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ActionButton(
-                text = "Find Phone",
-                icon = Icons.Default.Search,
-                onClick = onFindPhoneClick,
-                modifier = Modifier.weight(1f)
-            )
-            ActionButton(
-                text = "Mute",
-                icon = Icons.Default.Close,
-                onClick = onMuteClick,
-                modifier = Modifier.weight(1f)
-            )
-        }
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ActionButton(
                 text = "Reboot",
@@ -93,8 +75,6 @@ private fun ActionButton(
 fun ActionButtonsPreview() {
     PiConsoleTheme {
         ActionButtons(
-            onFindPhoneClick = {},
-            onMuteClick = {},
             onRebootClick = {},
             onShutdownClick = {},
             modifier = Modifier.padding(16.dp)

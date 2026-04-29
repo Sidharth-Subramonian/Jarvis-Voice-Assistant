@@ -10,6 +10,13 @@ data class StatusResponse(
     val isOnline: Boolean
 )
 
+data class ProcessInfo(
+    val pid: Int,
+    val name: String,
+    val cpu_percent: Float,
+    val memory_percent: Float
+)
+
 data class TimerRequest(
     val label: String,
     val durationSeconds: Int,
@@ -52,13 +59,26 @@ data class RingtoneListResponse(
 
 data class MediaRequest(
     val action: String, // "play", "pause", "next", "prev", "volume"
-    val volume: Float? = null
+    val volume: Float? = null,
+    val query: String? = null
 )
 
 data class MediaResponse(
     val status: String,
     val currentTrack: String? = null,
     val volume: Float? = null
+)
+
+data class MediaSearchResult(
+    val id: String,
+    val title: String,
+    val channel: String,
+    val duration: Int,
+    val thumbnail: String
+)
+
+data class MediaSearchListResponse(
+    val results: List<MediaSearchResult>
 )
 
 data class FindPhoneResponse(

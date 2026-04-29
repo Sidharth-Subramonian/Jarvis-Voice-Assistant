@@ -13,6 +13,15 @@ interface ApiService {
     @GET("status")
     suspend fun getStatus(): StatusResponse
 
+    @GET("processes")
+    suspend fun getProcesses(): List<ProcessInfo>
+
+    @GET("alarms")
+    suspend fun getAlarms(): List<AlarmResponse>
+
+    @GET("timers")
+    suspend fun getTimers(): List<TimerResponse>
+
     @POST("timer")
     suspend fun createTimer(@Body request: TimerRequest): TimerResponse
 
@@ -43,6 +52,9 @@ interface ApiService {
 
     @POST("media")
     suspend fun controlMedia(@Body request: MediaRequest): MediaResponse
+
+    @GET("media/search")
+    suspend fun searchMedia(@Query("q") query: String): MediaSearchListResponse
 
     @POST("find-phone")
     suspend fun findPhone(): FindPhoneResponse

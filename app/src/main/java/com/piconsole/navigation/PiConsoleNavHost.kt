@@ -2,7 +2,7 @@ package com.piconsole.navigation
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PlayArrow
@@ -19,13 +19,14 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.piconsole.screens.dashboard.DashboardScreen
 import com.piconsole.screens.media.MediaScreen
-import com.piconsole.screens.memory.MemoryVaultScreen
+import com.piconsole.screens.terminal.TerminalScreen
 import com.piconsole.screens.timers.ClockHubScreen
 import com.piconsole.screens.discovery.DiscoveryScreen
 import com.piconsole.viewmodel.DashboardViewModel
 import com.piconsole.viewmodel.MediaViewModel
 import com.piconsole.viewmodel.ClockViewModel
 import com.piconsole.viewmodel.DiscoveryViewModel
+import com.piconsole.viewmodel.TerminalViewModel
 import com.piconsole.network.RetrofitClient
 import com.piconsole.network.DeviceRegistrationRequest
 import com.google.firebase.messaging.FirebaseMessaging
@@ -50,7 +51,7 @@ fun PiConsoleNavHost() {
                     Triple(NavRoutes.Dashboard.route, "Dashboard", Icons.Default.Home),
                     Triple(NavRoutes.Timers.route, "Timers", Icons.Default.DateRange),
                     Triple(NavRoutes.Media.route, "Media", Icons.Default.PlayArrow),
-                    Triple(NavRoutes.Memory.route, "Memory", Icons.AutoMirrored.Filled.List)
+                    Triple(NavRoutes.Terminal.route, "Terminal", Icons.Default.Build)
                 )
 
                 items.forEach { (route, label, icon) ->
@@ -123,7 +124,10 @@ fun PiConsoleNavHost() {
                 val mediaViewModel: MediaViewModel = viewModel()
                 MediaScreen(mediaViewModel) 
             }
-            composable(NavRoutes.Memory.route) { MemoryVaultScreen() }
+            composable(NavRoutes.Terminal.route) { 
+                val terminalViewModel: TerminalViewModel = viewModel()
+                TerminalScreen(terminalViewModel) 
+            }
         }
     }
 }

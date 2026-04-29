@@ -24,6 +24,13 @@ import sys
 import firebase_admin
 from firebase_admin import credentials, messaging
 
+if sys.platform != "win32":
+    import pty
+    import termios
+    import fcntl
+    import select
+    import struct
+
 # Initialize Firebase Admin
 try:
     cred = credentials.Certificate(os.path.join(os.path.dirname(__file__), "firebase-adminsdk.json"))
@@ -257,6 +264,22 @@ class MediaResponse(BaseModel):
     currentTrack: Optional[str] = None
     volume: Optional[float] = None
 
+class MediaSearchResult(BaseModel):
+    id: str
+    title: str
+    channel: str
+    duration: int
+    thumbnail: str
+
+class MediaSearchListResponse(BaseModel):
+    results: List[MediaSearchResult]
+
+class ProcessInfo(BaseModel):
+    pid: int
+    name: str
+    cpu_percent: float
+    memory_percent: float
+
 class StatusResponse(BaseModel):
     deviceName: str
     ipAddress: str
@@ -337,22 +360,37 @@ async def get_status():
     try:
         temp = psutil.sensors_temperatures()
         temperature = 42.0 # default mock
-        if 'cpu_thermal' in temp:
-            temperature = temp['cpu_thermal'][0].current
-        elif 'coretemp' in temp:
-            temperature = temp['coretemp'][0].current
-    except Exception:
-        temperature = 45.0
-
     return StatusResponse(
         deviceName=socket.gethostname(),
-        ipAddress=ip_addr,
-        uptime=uptime_str,
-        cpuUsage=cpu_percent,
-        ramUsage=ram.percent,
-        temperature=temperature,
+        ipAddress=socket.gethostbyname(socket.gethostname()),
+        uptime=str(datetime.now() - datetime.fromtimestamp(start_time)).split('.')[0],
+        cpuUsage=psutil.cpu_percent(interval=0.1),
+        ramUsage=psutil.virtual_memory().percent,
+        temperature=get_cpu_temperature(),
         isOnline=True
     )
+
+@app.get("/processes", response_model=List[ProcessInfo])
+async def get_processes():
+    processes = []
+    for proc in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent']):
+        try:
+            info = proc.info
+            # Some processes might return None for CPU/Memory if access is denied
+            cpu = info['cpu_percent'] or 0.0
+            mem = info['memory_percent'] or 0.0
+            processes.append(ProcessInfo(
+                pid=info['pid'],
+                name=info['name'] or "Unknown",
+                cpu_percent=round(cpu, 1),
+                memory_percent=round(mem, 1)
+            ))
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            pass
+    
+    # Sort by CPU and return top 20
+    processes.sort(key=lambda p: p.cpu_percent, reverse=True)
+    return processes[:20]
 
 @app.post("/timer", response_model=TimerResponse)
 async def create_timer(request: TimerRequest):
@@ -440,6 +478,35 @@ async def delete_alarm(id: str):
     await manager.broadcast({"type": "alarm_deleted", "data": {"id": id}})
     return {"message": "Alarm deleted"}
 
+@app.get("/alarms", response_model=List[AlarmResponse])
+async def get_alarms():
+    with Session(engine) as session:
+        alarms = session.exec(select(Alarm)).all()
+        return [
+            AlarmResponse(
+                id=a.id, 
+                label=a.label, 
+                timeFormatted=a.timeFormatted, 
+                isActive=a.isActive, 
+                ringtone=a.ringtone, 
+                repeatDays=json.loads(a.repeatDays) if a.repeatDays else None
+            ) for a in alarms
+        ]
+
+@app.get("/timers", response_model=List[TimerResponse])
+async def get_timers():
+    with Session(engine) as session:
+        timers = session.exec(select(Timer)).all()
+        now = time.time()
+        return [
+            TimerResponse(
+                id=t.id, 
+                label=t.label, 
+                remainingSeconds=max(0, int(t.endTime - now)), 
+                ringtone=t.ringtone
+            ) for t in timers if t.endTime > now
+        ]
+
 def _schedule_alarm(alarm_id, time_formatted, ringtone, repeat_days, label):
     """Schedule an alarm job. Supports one-shot and recurring."""
     try:
@@ -462,9 +529,25 @@ def _schedule_alarm(alarm_id, time_formatted, ringtone, repeat_days, label):
                 loop.create_task(manager.broadcast({"type": "alarm_fired", "data": {"id": a_id, "label": a_label}}))
             except Exception:
                 pass
-            # Re-schedule if recurring
+            
+            # Re-schedule if recurring, else delete from DB
             if a_repeat_days:
                 _schedule_alarm(a_id, time_formatted, a_ringtone, a_repeat_days, a_label)
+            else:
+                try:
+                    with Session(engine) as session:
+                        alarm_to_del = session.get(Alarm, a_id)
+                        if alarm_to_del:
+                            session.delete(alarm_to_del)
+                            session.commit()
+                    # Also broadcast deleted so clients can clear it completely
+                    try:
+                        loop = asyncio.get_event_loop()
+                        loop.create_task(manager.broadcast({"type": "alarm_deleted", "data": {"id": a_id}}))
+                    except Exception:
+                        pass
+                except Exception as e:
+                    print(f"Error deleting one-shot alarm: {e}")
 
         if repeat_days:
             # For recurring, check if tomorrow's day is in the repeat list
@@ -622,6 +705,35 @@ async def control_media(request: MediaRequest):
     
     return MediaResponse(**state)
 
+@app.get("/media/search", response_model=MediaSearchListResponse)
+async def search_media(q: str):
+    import subprocess
+    import json
+    try:
+        # Run yt-dlp to get 5 results
+        cmd = f'yt-dlp --dump-json "ytsearch5:{q}"'
+        process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        out, _ = process.communicate()
+        
+        results = []
+        for line in out.decode('utf-8').strip().split('\n'):
+            if line:
+                try:
+                    data = json.loads(line)
+                    results.append(MediaSearchResult(
+                        id=data.get('id', ''),
+                        title=data.get('title', 'Unknown Title'),
+                        channel=data.get('uploader', 'Unknown Channel'),
+                        duration=data.get('duration', 0),
+                        thumbnail=data.get('thumbnail', '')
+                    ))
+                except Exception:
+                    pass
+        return MediaSearchListResponse(results=results)
+    except Exception as e:
+        print(f"Error searching media: {e}")
+        return MediaSearchListResponse(results=[])
+
 @app.post("/find-phone")
 async def find_phone():
     global fcm_token
@@ -694,6 +806,65 @@ async def jarvis_command(request: JarvisCommand):
     print(f"Received text command for Jarvis: {request.command}")
     return {"message": "Text command received", "command": request.command}
 
+@app.websocket("/terminal")
+async def websocket_terminal(websocket: WebSocket):
+    await websocket.accept()
+    if sys.platform == "win32":
+        await websocket.send_text("Terminal feature requires Linux (pty). Not supported on Windows.\r\n")
+        await websocket.close()
+        return
+
+    # Spawn bash in a pty
+    pid, fd = pty.fork()
+    if pid == 0:
+        # Child process
+        # Set terminal environment
+        os.environ["TERM"] = "xterm-256color"
+        os.execvp("bash", ["bash", "--login"])
+    else:
+        # Parent process
+        # Set non-blocking read
+        fl = fcntl.fcntl(fd, fcntl.F_GETFL)
+        fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
+
+        async def read_from_pty():
+            try:
+                while True:
+                    await asyncio.sleep(0.01)
+                    r, _, _ = select.select([fd], [], [], 0.0)
+                    if fd in r:
+                        data = os.read(fd, 4096)
+                        if not data:
+                            break
+                        # Send to websocket
+                        await websocket.send_text(data.decode(errors='replace'))
+            except Exception as e:
+                print(f"PTY read error: {e}")
+
+        async def read_from_ws():
+            try:
+                while True:
+                    data = await websocket.receive_text()
+                    os.write(fd, data.encode('utf-8'))
+            except WebSocketDisconnect:
+                pass
+            except Exception as e:
+                print(f"WS read error: {e}")
+
+        task1 = asyncio.create_task(read_from_pty())
+        task2 = asyncio.create_task(read_from_ws())
+
+        done, pending = await asyncio.wait([task1, task2], return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
+        
+        try:
+            os.close(fd)
+            import signal
+            os.kill(pid, signal.SIGKILL)
+            os.waitpid(pid, 0)
+        except Exception:
+            pass
 
 if __name__ == "__main__":
     import uvicorn

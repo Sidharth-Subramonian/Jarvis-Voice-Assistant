@@ -27,6 +27,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material3.TabRowDefaults.SecondaryIndicator
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import com.piconsole.components.TimerCard
 import com.piconsole.components.WheelTimePicker
 import com.piconsole.components.ErrorBanner
@@ -34,40 +36,65 @@ import com.piconsole.viewmodel.ClockViewModel
 import kotlinx.coroutines.delay
 import java.io.File
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ClockHubScreen(viewModel: ClockViewModel) {
     var selectedTabIndex by remember { mutableIntStateOf(1) } // Default to Timers
     val error by viewModel.error.collectAsState()
     val tabs = listOf("Alarms", "Timers")
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        error?.let {
-            ErrorBanner(
-                message = it,
-                onDismiss = { viewModel.clearError() },
-                onRetry = { viewModel.clearError() }
-            )
-        }
-        TabRow(
-            selectedTabIndex = selectedTabIndex,
-            containerColor = MaterialTheme.colorScheme.surface,
-            contentColor = MaterialTheme.colorScheme.primary
-        ) {
-            tabs.forEachIndexed { index, title ->
-                Tab(
-                    selected = selectedTabIndex == index,
-                    onClick = { selectedTabIndex = index },
-                    text = { 
-                        Text(
-                            text = title, 
-                            fontWeight = if (selectedTabIndex == index) FontWeight.Bold else FontWeight.Normal 
-                        ) 
-                    }
+    Scaffold(
+        topBar = {
+            Column {
+                TopAppBar(
+                    title = { Text("Clock Hub", fontWeight = FontWeight.Bold) },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        titleContentColor = MaterialTheme.colorScheme.onSurface
+                    )
                 )
+                error?.let {
+                    ErrorBanner(
+                        message = it,
+                        onDismiss = { viewModel.clearError() },
+                        onRetry = { viewModel.clearError() }
+                    )
+                }
+                TabRow(
+                    selectedTabIndex = selectedTabIndex,
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.primary,
+                    indicator = { tabPositions ->
+                        SecondaryIndicator(
+                            Modifier.tabIndicatorOffset(tabPositions[selectedTabIndex]),
+                            height = 3.dp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                ) {
+                    tabs.forEachIndexed { index, title ->
+                        Tab(
+                            selected = selectedTabIndex == index,
+                            onClick = { selectedTabIndex = index },
+                            text = { 
+                                Text(
+                                    text = title, 
+                                    fontWeight = if (selectedTabIndex == index) FontWeight.Bold else FontWeight.Medium,
+                                    fontSize = 16.sp
+                                ) 
+                            }
+                        )
+                    }
+                }
             }
         }
-
-        Box(modifier = Modifier.fillMaxSize()) {
+    ) { paddingValues ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f))
+                .padding(paddingValues)
+        ) {
             when (selectedTabIndex) {
                 0 -> AlarmsContent(viewModel)
                 1 -> TimersContent(viewModel)
@@ -127,34 +154,68 @@ fun AlarmsContent(viewModel: ClockViewModel) {
 fun AlarmCard(label: String, time: String, isActive: Boolean, ringtone: String, repeatDays: List<String>?, onDelete: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(20.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 20.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(text = time, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.SemiBold)
-                if (ringtone != "default") {
+                Text(
+                    text = time, 
+                    style = MaterialTheme.typography.displayMedium, 
+                    fontWeight = FontWeight.Light,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "🔔 $ringtone",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary
+                        text = label, 
+                        style = MaterialTheme.typography.bodyLarge, 
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    if (ringtone != "default") {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Icon(Icons.Default.Notifications, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = ringtone.take(10) + if(ringtone.length > 10) "..." else "",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
                 if (!repeatDays.isNullOrEmpty()) {
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = repeatDays.joinToString(", "),
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.secondary
+                    )
+                } else {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Once",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.tertiary
                     )
                 }
             }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete Alarm", tint = MaterialTheme.colorScheme.error)
+            
+            Column(horizontalAlignment = Alignment.End) {
+                Switch(
+                    checked = isActive,
+                    onCheckedChange = { /* Toggle alarm not implemented yet */ },
+                    colors = SwitchDefaults.colors(checkedThumbColor = MaterialTheme.colorScheme.primary)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete Alarm", tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f))
+                }
             }
         }
     }
