@@ -39,7 +39,6 @@ class MusicPlayer:
         cmd = (
             f'yt-dlp --format ba -g "ytsearch1:{query}" | '
             f'xargs mpv --no-video --volume=100 '
-            f'--ao=alsa --audio-device=alsa/hw:2,0 '
             f'--input-ipc-server=/tmp/mpvsocket'
         )
         
