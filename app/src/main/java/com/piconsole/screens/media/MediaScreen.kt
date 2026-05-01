@@ -1,14 +1,7 @@
 package com.piconsole.screens.media
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -30,25 +23,16 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.zIndex
-import kotlinx.coroutines.delay
-import com.piconsole.network.models.MediaSearchResult
 import com.piconsole.viewmodel.MediaViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MediaScreen(viewModel: MediaViewModel) {
     val mediaState by viewModel.mediaState.collectAsState()
-    val searchRecommendations by viewModel.searchRecommendations.collectAsState()
-    val isSearching by viewModel.isSearching.collectAsState()
-    
+
     var searchQuery by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
 
-    // Remove debounce search recommendation to improve performance
-    // The search is now only triggered manually by the user
-
-    
     // Gradient Background
     Box(
         modifier = Modifier
@@ -57,7 +41,7 @@ fun MediaScreen(viewModel: MediaViewModel) {
                 Brush.verticalGradient(
                     colors = listOf(
                         MaterialTheme.colorScheme.surface,
-                        Color(0xFF1E1E2C) // Deep dark purple/blue for media vibe
+                        Color(0xFF1E1E2C)
                     )
                 )
             )
@@ -69,85 +53,43 @@ fun MediaScreen(viewModel: MediaViewModel) {
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // We place the Search Bar and Dropdown inside a Box with zIndex so it overlays the rest of the UI
-            // instead of pushing it down and merging with the music card
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .zIndex(1f)
-            ) {
-                Column {
-                    // Search Bar
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("Search YouTube Music...") },
-                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                        trailingIcon = {
-                            if (searchQuery.isNotEmpty()) {
-                                IconButton(onClick = { 
-                                    searchQuery = "" 
-                                    viewModel.clearSearch()
-                                }) {
-                                    Icon(Icons.Default.Clear, contentDescription = "Clear")
-                                }
-                            }
-                        },
-                        shape = RoundedCornerShape(24.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f),
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = Color.Transparent
-                        ),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = {
-                            if (searchQuery.isNotEmpty()) {
-                                viewModel.searchMedia(searchQuery)
-                                focusManager.clearFocus()
-                            }
-                        }),
-                        singleLine = true
-                    )
-
-                    // Search Results Dropdown/List
-                    AnimatedVisibility(visible = isSearching || searchRecommendations.isNotEmpty()) {
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 8.dp)
-                                .heightIn(max = 250.dp),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
-                        ) {
-                            if (isSearching) {
-                                Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator()
-                                }
-                            } else {
-                                LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                                    items(searchRecommendations) { result ->
-                                        SearchResultItem(result) {
-                                            viewModel.sendMediaAction("play", query = result.id)
-                                            searchQuery = ""
-                                            viewModel.clearSearch()
-                                            focusManager.clearFocus()
-                                        }
-                                    }
-                                }
-                            }
+            // Search Bar — plays the typed query directly on enter
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("Search YouTube Music...") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Default.Clear, contentDescription = "Clear")
                         }
                     }
-                }
-            }
+                },
+                shape = RoundedCornerShape(24.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f),
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = Color.Transparent
+                ),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = {
+                    if (searchQuery.isNotEmpty()) {
+                        viewModel.sendMediaAction("play", query = searchQuery)
+                        searchQuery = ""
+                        focusManager.clearFocus()
+                    }
+                }),
+                singleLine = true
+            )
 
             Spacer(modifier = Modifier.height(32.dp))
 
             // Album Art Placeholder (Vinyl Record Style)
             val isPlaying = mediaState?.status == "playing"
-            
+
             Box(
                 modifier = Modifier
                     .size(280.dp)
@@ -183,11 +125,11 @@ fun MediaScreen(viewModel: MediaViewModel) {
 
             // Track Info
             Text(
-                text = mediaState?.currentTrack ?: "Jarvis Jams",
+                text = mediaState?.currentTrack ?: "Not Playing",
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
             Spacer(modifier = Modifier.height(8.dp))
@@ -197,7 +139,34 @@ fun MediaScreen(viewModel: MediaViewModel) {
                 color = MaterialTheme.colorScheme.primary
             )
 
-            Spacer(modifier = Modifier.height(48.dp))
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // Progress / Seek Bar
+            val position = mediaState?.position ?: 0f
+            val duration = mediaState?.duration ?: 0f
+            if (duration > 0) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                ) {
+                    Text(formatTime(position.toInt()), color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                    Slider(
+                        value = if (duration > 0) position / duration else 0f,
+                        onValueChange = {
+                            val newPosition = it * duration
+                            viewModel.sendMediaAction("seek", position = newPosition)
+                        },
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                        colors = SliderDefaults.colors(
+                            thumbColor = MaterialTheme.colorScheme.tertiary,
+                            activeTrackColor = MaterialTheme.colorScheme.tertiary,
+                            inactiveTrackColor = Color.White.copy(alpha = 0.2f)
+                        )
+                    )
+                    Text(formatTime(duration.toInt()), color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
 
             // Playback Controls
             Row(
@@ -211,9 +180,9 @@ fun MediaScreen(viewModel: MediaViewModel) {
                 ) {
                     Icon(Icons.Default.SkipPrevious, contentDescription = "Prev", modifier = Modifier.size(40.dp), tint = Color.White)
                 }
-                
+
                 FloatingActionButton(
-                    onClick = { 
+                    onClick = {
                         if (isPlaying) {
                             viewModel.sendMediaAction("pause")
                         } else {
@@ -241,34 +210,7 @@ fun MediaScreen(viewModel: MediaViewModel) {
             }
 
             Spacer(modifier = Modifier.height(40.dp))
-            
-            // Progress Bar
-            val position = mediaState?.position ?: 0f
-            val duration = mediaState?.duration ?: 0f
-            if (duration > 0) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-                ) {
-                    Text(formatTime(position.toInt()), color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
-                    Slider(
-                        value = if (duration > 0) position / duration else 0f,
-                        onValueChange = { 
-                            val newPosition = it * duration
-                            viewModel.sendMediaAction("seek", position = newPosition)
-                        },
-                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-                        colors = SliderDefaults.colors(
-                            thumbColor = MaterialTheme.colorScheme.tertiary,
-                            activeTrackColor = MaterialTheme.colorScheme.tertiary,
-                            inactiveTrackColor = Color.White.copy(alpha = 0.2f)
-                        )
-                    )
-                    Text(formatTime(duration.toInt()), color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-            
+
             // Volume Control
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -287,7 +229,7 @@ fun MediaScreen(viewModel: MediaViewModel) {
                 )
                 Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, tint = Color.White.copy(alpha = 0.7f))
             }
-            
+
             Spacer(modifier = Modifier.height(16.dp))
         }
     }
@@ -297,43 +239,4 @@ fun formatTime(seconds: Int): String {
     val mins = seconds / 60
     val secs = seconds % 60
     return String.format("%02d:%02d", mins, secs)
-}
-
-@Composable
-fun SearchResultItem(result: MediaSearchResult, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-        }
-        Spacer(modifier = Modifier.width(16.dp))
-        Column {
-            Text(
-                text = result.title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = result.channel,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-    }
 }
