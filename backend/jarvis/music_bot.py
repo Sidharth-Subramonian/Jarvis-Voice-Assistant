@@ -80,6 +80,46 @@ class MusicPlayer:
             logger.error(f"Error sending command to mpv: {e}")
             return False
 
+    def _get_mpv_property(self, prop: str) -> Optional[float]:
+        """Get a numerical property from mpv via socket."""
+        if not self.is_playing():
+            return None
+            
+        try:
+            import json
+            import socket
+            
+            if not os.path.exists(self.socket_path):
+                return None
+                
+            payload = json.dumps({"command": ["get_property", prop]}) + "\n"
+            
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+                client.settimeout(0.5)
+                client.connect(self.socket_path)
+                client.sendall(payload.encode())
+                response = client.recv(4096).decode('utf-8')
+                
+                for line in response.split('\n'):
+                    if not line:
+                        continue
+                    try:
+                        data = json.loads(line)
+                        if "error" in data and data["error"] == "success" and "data" in data:
+                            return float(data["data"])
+                    except json.JSONDecodeError:
+                        continue
+            return None
+        except Exception as e:
+            logger.error(f"Error getting property {prop} from mpv: {e}")
+            return None
+
+    def seek(self, position: float) -> str:
+        """Seek to a specific position in seconds."""
+        if self._send_mpv_command(["set_property", "time-pos", position]):
+            return f"Seeked to {position}s."
+        return "Failed to seek."
+
     def toggle_pause(self) -> str:
         """Toggle play/pause."""
         self.is_paused = not self.is_paused
@@ -192,13 +232,23 @@ def set_volume(volume: int) -> str:
     return _player.set_volume(volume)
 
 
+def seek(position: float) -> str:
+    """Public interface to seek."""
+    return _player.seek(position)
+
+
 def get_current_state() -> dict:
     """Public interface to get current player state."""
+    pos = _player._get_mpv_property("time-pos")
+    dur = _player._get_mpv_property("duration")
+    
     return {
         "status": "playing" if _player.is_playing() else "stopped",
         "is_paused": _player.is_paused,
         "currentTrack": _player.current_query,
-        "volume": _player.volume / 100.0
+        "volume": _player.volume / 100.0,
+        "position": pos if pos is not None else 0.0,
+        "duration": dur if dur is not None else 0.0
     }
 
 

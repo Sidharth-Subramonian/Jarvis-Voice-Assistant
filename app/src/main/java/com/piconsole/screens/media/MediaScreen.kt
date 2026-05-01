@@ -9,9 +9,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
@@ -43,14 +45,9 @@ fun MediaScreen(viewModel: MediaViewModel) {
     var searchQuery by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
 
-    LaunchedEffect(searchQuery) {
-        if (searchQuery.length > 2) {
-            delay(500) // Debounce
-            viewModel.searchMedia(searchQuery)
-        } else if (searchQuery.isEmpty()) {
-            viewModel.clearSearch()
-        }
-    }
+    // Remove debounce search recommendation to improve performance
+    // The search is now only triggered manually by the user
+
     
     // Gradient Background
     Box(
@@ -68,7 +65,8 @@ fun MediaScreen(viewModel: MediaViewModel) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = 48.dp, start = 24.dp, end = 24.dp, bottom = 24.dp),
+                .padding(top = 48.dp, start = 24.dp, end = 24.dp, bottom = 24.dp)
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // We place the Search Bar and Dropdown inside a Box with zIndex so it overlays the rest of the UI
@@ -145,7 +143,7 @@ fun MediaScreen(viewModel: MediaViewModel) {
                 }
             }
 
-            Spacer(modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.height(32.dp))
 
             // Album Art Placeholder (Vinyl Record Style)
             val isPlaying = mediaState?.status == "playing"
@@ -244,6 +242,33 @@ fun MediaScreen(viewModel: MediaViewModel) {
 
             Spacer(modifier = Modifier.height(40.dp))
             
+            // Progress Bar
+            val position = mediaState?.position ?: 0f
+            val duration = mediaState?.duration ?: 0f
+            if (duration > 0) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                ) {
+                    Text(formatTime(position.toInt()), color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                    Slider(
+                        value = if (duration > 0) position / duration else 0f,
+                        onValueChange = { 
+                            val newPosition = it * duration
+                            viewModel.sendMediaAction("seek", position = newPosition)
+                        },
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                        colors = SliderDefaults.colors(
+                            thumbColor = MaterialTheme.colorScheme.tertiary,
+                            activeTrackColor = MaterialTheme.colorScheme.tertiary,
+                            inactiveTrackColor = Color.White.copy(alpha = 0.2f)
+                        )
+                    )
+                    Text(formatTime(duration.toInt()), color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+            
             // Volume Control
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -266,6 +291,12 @@ fun MediaScreen(viewModel: MediaViewModel) {
             Spacer(modifier = Modifier.height(16.dp))
         }
     }
+}
+
+fun formatTime(seconds: Int): String {
+    val mins = seconds / 60
+    val secs = seconds % 60
+    return String.format("%02d:%02d", mins, secs)
 }
 
 @Composable

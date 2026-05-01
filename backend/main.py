@@ -271,11 +271,14 @@ class MediaRequest(BaseModel):
     action: str
     volume: Optional[float] = None
     query: Optional[str] = None
+    position: Optional[float] = None
 
 class MediaResponse(BaseModel):
     status: str
     currentTrack: Optional[str] = None
     volume: Optional[float] = None
+    position: Optional[float] = None
+    duration: Optional[float] = None
 
 class MediaSearchResult(BaseModel):
     id: str
@@ -691,7 +694,7 @@ async def control_stopwatch(request: StopwatchAction):
 
 @app.post("/media", response_model=MediaResponse)
 async def control_media(request: MediaRequest):
-    from jarvis.music_bot import play_music, stop_music, toggle_pause, set_volume, get_current_state
+    from jarvis.music_bot import play_music, stop_music, toggle_pause, set_volume, seek, get_current_state
     
     if request.action == "play":
         if request.query:
@@ -708,6 +711,9 @@ async def control_media(request: MediaRequest):
     elif request.action == "volume":
         if request.volume is not None:
             set_volume(int(request.volume * 100))
+    elif request.action == "seek":
+        if request.position is not None:
+            seek(request.position)
 
     state = get_current_state()
     # Broadcast media update

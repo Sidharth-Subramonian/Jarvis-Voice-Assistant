@@ -36,17 +36,19 @@ class MediaViewModel : ViewModel() {
                         val status = event.data["status"] as? String ?: ""
                         val track = event.data["currentTrack"] as? String
                         val volume = (event.data["volume"] as? Double)?.toFloat()
-                        _mediaState.value = MediaResponse(status, track, volume)
+                        val position = (event.data["position"] as? Double)?.toFloat()
+                        val duration = (event.data["duration"] as? Double)?.toFloat()
+                        _mediaState.value = MediaResponse(status, track, volume, position, duration)
                     }
                 }
             } catch (_: Exception) {}
         }
     }
 
-    fun sendMediaAction(action: String, volume: Float? = null, query: String? = null) {
+    fun sendMediaAction(action: String, volume: Float? = null, query: String? = null, position: Float? = null) {
         viewModelScope.launch {
             try {
-                val response = RetrofitClient.apiService.controlMedia(MediaRequest(action, volume, query))
+                val response = RetrofitClient.apiService.controlMedia(MediaRequest(action, volume, query, position))
                 _mediaState.value = response
             } catch (e: Exception) {
                 _error.value = "Failed to send media action: ${e.message}"

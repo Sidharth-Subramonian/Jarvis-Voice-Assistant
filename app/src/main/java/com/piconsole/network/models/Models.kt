@@ -58,15 +58,18 @@ data class RingtoneListResponse(
 
 
 data class MediaRequest(
-    val action: String, // "play", "pause", "next", "prev", "volume"
+    val action: String, // "play", "pause", "next", "prev", "volume", "seek"
     val volume: Float? = null,
-    val query: String? = null
+    val query: String? = null,
+    val position: Float? = null
 )
 
 data class MediaResponse(
     val status: String,
     val currentTrack: String? = null,
-    val volume: Float? = null
+    val volume: Float? = null,
+    val position: Float? = null,
+    val duration: Float? = null
 )
 
 data class MediaSearchResult(
